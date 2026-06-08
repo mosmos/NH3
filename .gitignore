@@ -1,0 +1,13 @@
+# Local configuration — contains DB credentials and machine-specific paths
+config.py
+
+# ArcGIS SDE connection files — contain server/database connection info
+*.sde
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# ArcGIS tool metadata (auto-generated)
+*.pyt.xml

@@ -1,0 +1,132 @@
+"""
+NH DWG to SDE — FastAPI entry point.
+Run: uvicorn app:app --host 0.0.0.0 --port 8000
+"""
+import importlib
+import logging
+import os
+from typing import Optional
+
+import arcpy
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+
+import parcel_writer
+
+importlib.reload(parcel_writer)
+
+from config import SDE_CONNECTION
+from database_updater import update_status_teina
+from database_writer import verify_inserted_record, write_to_mapot_hesder
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s — %(message)s",
+)
+logger = logging.getLogger(__name__)
+
+app = FastAPI(title="NH DWG to SDE", version="2.0.0")
+
+
+class ProcessRequest(BaseModel):
+    id_hesder: str
+    k_sug_mapa: int          # 0, 1, or 2
+    dwg_path: str
+    mishtamesh: Optional[str] = None
+
+
+class ProcessResponse(BaseModel):
+    success: bool
+    id_teina: Optional[int] = None
+    message: str
+
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+
+@app.post("/api/process-dwg", response_model=ProcessResponse)
+def process_dwg(req: ProcessRequest):
+    # --- input validation ---
+    try:
+        int(req.id_hesder)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="id_hesder must be numeric")
+
+    if req.k_sug_mapa not in (0, 1, 2):
+        raise HTTPException(status_code=422, detail="k_sug_mapa must be 0, 1, or 2")
+
+    if not os.path.exists(req.dwg_path):
+        raise HTTPException(status_code=422, detail=f"DWG file not found: {req.dwg_path}")
+
+    logger.info(
+        "Starting job — id_hesder=%s k_sug_mapa=%s dwg=%s",
+        req.id_hesder, req.k_sug_mapa, req.dwg_path,
+    )
+
+    # --- insert submission record (status=1 Started) ---
+    new_id_teina = write_to_mapot_hesder(
+        sde_connection=SDE_CONNECTION,
+        id_hesder=req.id_hesder,
+        k_sug_mapa=req.k_sug_mapa,
+        dwg_path=req.dwg_path,
+        mishtamesh=req.mishtamesh,
+    )
+    if new_id_teina is None:
+        raise HTTPException(status_code=500, detail="Failed to create submission record")
+
+    logger.info("Submission record created — id_teina=%s", new_id_teina)
+
+    # --- process DWG → SDE ---
+    try:
+        success = parcel_writer.process_dwg_to_sde(
+            dwg_path=req.dwg_path,
+            id_hesder=req.id_hesder,
+            k_sug_mapa=req.k_sug_mapa,
+            sde_connection=SDE_CONNECTION,
+        )
+    except Exception as exc:
+        logger.exception("DWG processing raised an exception for id_teina=%s", new_id_teina)
+        update_status_teina(SDE_CONNECTION, new_id_teina, 5)
+        raise HTTPException(status_code=500, detail=f"DWG processing error: {exc}")
+
+    if success:
+        update_status_teina(SDE_CONNECTION, new_id_teina, 6)
+        logger.info("Job completed — id_teina=%s", new_id_teina)
+        return ProcessResponse(
+            success=True,
+            id_teina=new_id_teina,
+            message="Processing completed successfully",
+        )
+
+    update_status_teina(SDE_CONNECTION, new_id_teina, 5)
+    return ProcessResponse(
+        success=False,
+        id_teina=new_id_teina,
+        message="DWG processing failed — see server logs for details",
+    )
+
+
+@app.get("/api/status/{id_teina}")
+def get_status(id_teina: int):
+    record = verify_inserted_record(SDE_CONNECTION, id_teina)
+    if record is None:
+        raise HTTPException(status_code=404, detail=f"No record for id_teina={id_teina}")
+
+    status_text = {1: "Job Started", 5: "Error", 6: "Completed Successfully"}
+    status_val = record.get("k_status_teina")
+    return {
+        "id_teina": id_teina,
+        "k_status_teina": status_val,
+        "status_text": status_text.get(status_val, str(status_val)),
+        "id_hesder": record.get("id_hesder"),
+        "k_sug_mapa": record.get("k_sug_mapa"),
+        "version": record.get("version"),
+        "dwg_path": record.get("dwg_path"),
+    }
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=False)
