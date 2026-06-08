@@ -271,9 +271,8 @@ Direct ODBC connection (pyodbc). Used only for the status UPDATE to avoid SDE ed
 
 ## Known Issues / Notes
 
-- **Hardcoded DB credentials** in `database_updater.py` — intentionally simple for this environment; do not expose externally.
+- **Credentials in config.py** — `DB_USER`/`DB_PASSWORD` live in `config.py` which is gitignored. Copy `config.example.py` → `config.py` and fill in values before running.
 - **No concurrency guard on PK generation** — `calculate_next_id_teina` uses `MAX+1`. Simultaneous requests could produce duplicate `id_teina` values. Mitigation: use a DB sequence or `IDENTITY` column.
-- **Version numbering difference** — `database_writer.py` starts versions at 1; `parcel_writer.get_next_version` starts at 0 (first parcel write for a new `id_hesder`/`k_sug_mapa` pair). This is intentional: the tracking row gets version 1, the spatial features get version 0.
 
 ---
 
