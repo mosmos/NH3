@@ -11,3 +11,6 @@ __pycache__/
 
 # ArcGIS tool metadata (auto-generated)
 *.pyt.xml
+
+# Runtime logs
+logs/

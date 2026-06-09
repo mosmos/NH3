@@ -5,10 +5,11 @@ Run: uvicorn app:app --host 0.0.0.0 --port 8000
 import importlib
 import logging
 import os
+import time
+from datetime import date
 from typing import Optional
 
-import arcpy
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
 
 import parcel_writer
@@ -19,13 +20,94 @@ from config import SDE_CONNECTION
 from database_updater import update_status_teina
 from database_writer import verify_inserted_record, write_to_mapot_hesder
 
+
+class DailyDateFileHandler(logging.Handler):
+    def __init__(self, log_dir: str, encoding: str = "utf-8"):
+        super().__init__()
+        self.log_dir = log_dir
+        self.encoding = encoding
+        self.current_date = date.today()
+        self._file_handler = logging.FileHandler(
+            self._build_log_path(self.current_date),
+            encoding=self.encoding,
+        )
+
+    def _build_log_path(self, day: date) -> str:
+        return os.path.join(self.log_dir, f"{day.isoformat()}.log")
+
+    def setFormatter(self, fmt):
+        super().setFormatter(fmt)
+        self._file_handler.setFormatter(fmt)
+
+    def emit(self, record):
+        today = date.today()
+        if today != self.current_date:
+            self._file_handler.close()
+            self.current_date = today
+            self._file_handler = logging.FileHandler(
+                self._build_log_path(self.current_date),
+                encoding=self.encoding,
+            )
+            if self.formatter:
+                self._file_handler.setFormatter(self.formatter)
+
+        self._file_handler.emit(record)
+
+    def close(self):
+        try:
+            self._file_handler.close()
+        finally:
+            super().close()
+
+
+LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
+os.makedirs(LOG_DIR, exist_ok=True)
+file_handler = DailyDateFileHandler(LOG_DIR)
+stream_handler = logging.StreamHandler()
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s — %(message)s",
+    handlers=[stream_handler, file_handler],
 )
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="NH DWG to SDE", version="2.0.0")
+
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    start_time = time.perf_counter()
+    client_host = request.client.host if request.client else "unknown"
+
+    logger.info(
+        "Request started method=%s path=%s client=%s",
+        request.method,
+        request.url.path,
+        client_host,
+    )
+
+    try:
+        response = await call_next(request)
+    except Exception:
+        duration_ms = (time.perf_counter() - start_time) * 1000
+        logger.exception(
+            "Request failed method=%s path=%s duration_ms=%.2f",
+            request.method,
+            request.url.path,
+            duration_ms,
+        )
+        raise
+
+    duration_ms = (time.perf_counter() - start_time) * 1000
+    logger.info(
+        "Request completed method=%s path=%s status_code=%s duration_ms=%.2f",
+        request.method,
+        request.url.path,
+        response.status_code,
+        duration_ms,
+    )
+    return response
 
 
 class ProcessRequest(BaseModel):
