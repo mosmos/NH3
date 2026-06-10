@@ -19,13 +19,13 @@ if _THIS_DIR not in sys.path:
 import parcel_writer
 importlib.reload(parcel_writer)
 
-from config import SDE_CONNECTION
+from config import DWG_ROOT, SDE_CONNECTION
 from database_writer import write_to_mapot_hesder, verify_inserted_record
 from database_updater import update_status_teina
-ID_HESDER    = "1234"
-K_SUG_MAPA   = 1
+ID_HESDER    = "102030"
+K_SUG_MAPA   = 2
 #DWG_PATH     = r"\\nas01\Gis_Users\moshe-yaniv\PROJECTS\NEHASIM_PARCELS\CAD\80115.dwg"
-DWG_PATH     = r"\\nas01\niNechasim\MimshakTeinatMapotPPR\9003.dwg"
+DWG_PATH     = DWG_ROOT + "\\" + r"80117.dwg"
 MISHTAMESH   = None
 
 def main():
