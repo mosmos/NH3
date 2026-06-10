@@ -90,6 +90,7 @@ def bump_spatial_versions(
     sde_connection: str,
     id_hesder: str,
     k_sug_mapa: int,
+    current_id_teina: Optional[int] = None,
 ) -> int:
     """
     Before writing new features (always version=0), promote the existing
@@ -139,14 +140,21 @@ def bump_spatial_versions(
             else:
                 logger.info("No version=0 rows to bump in %s", table)
 
-        # Tracking table: bump version=0 → real_version (which already holds
-        # the correct chronological number for that row)
+        # Tracking table: bump version=0 → real_version for all previous rows.
+        # The newly inserted row (current_id_teina) must stay at version=0.
         tracking_table = "dbo.nh_t_teinat_mapot_hesder"
-        cursor.execute(
-            f"UPDATE {tracking_table} SET version = real_version "
-            f"WHERE id_hesder = ? AND k_sug_mapa = ? AND version = 0",
-            (id_hesder, k_sug_mapa),
-        )
+        if current_id_teina is not None:
+            cursor.execute(
+                f"UPDATE {tracking_table} SET version = real_version "
+                f"WHERE id_hesder = ? AND k_sug_mapa = ? AND version = 0 AND id_teina <> ?",
+                (id_hesder, k_sug_mapa, current_id_teina),
+            )
+        else:
+            cursor.execute(
+                f"UPDATE {tracking_table} SET version = real_version "
+                f"WHERE id_hesder = ? AND k_sug_mapa = ? AND version = 0",
+                (id_hesder, k_sug_mapa),
+            )
         rows = cursor.rowcount
         if rows > 0:
             logger.info("Bumped %s row(s) in %s: version 0 -> real_version", rows, tracking_table)

@@ -16,7 +16,7 @@ import parcel_writer
 
 importlib.reload(parcel_writer)
 
-from config import SDE_CONNECTION
+from config import DWG_ROOT, SDE_CONNECTION
 from database_updater import update_status_teina
 from database_writer import verify_inserted_record, write_to_mapot_hesder
 
@@ -113,7 +113,7 @@ async def log_requests(request: Request, call_next):
 class ProcessRequest(BaseModel):
     id_hesder: str
     k_sug_mapa: int          # 0, 1, or 2
-    dwg_path: str
+    dwg_file_name: str
     mishtamesh: Optional[str] = None
 
 
@@ -139,12 +139,13 @@ def process_dwg(req: ProcessRequest):
     if req.k_sug_mapa not in (0, 1, 2):
         raise HTTPException(status_code=422, detail="k_sug_mapa must be 0, 1, or 2")
 
-    if not os.path.exists(req.dwg_path):
-        raise HTTPException(status_code=422, detail=f"DWG file not found: {req.dwg_path}")
+    dwg_path = os.path.join(DWG_ROOT, req.dwg_file_name)
+    if not os.path.exists(dwg_path):
+        raise HTTPException(status_code=422, detail=f"DWG file not found: {dwg_path}")
 
     logger.info(
         "Starting job — id_hesder=%s k_sug_mapa=%s dwg=%s",
-        req.id_hesder, req.k_sug_mapa, req.dwg_path,
+        req.id_hesder, req.k_sug_mapa, dwg_path,
     )
 
     # --- insert submission record (status=1 Started) ---
@@ -152,7 +153,7 @@ def process_dwg(req: ProcessRequest):
         sde_connection=SDE_CONNECTION,
         id_hesder=req.id_hesder,
         k_sug_mapa=req.k_sug_mapa,
-        dwg_path=req.dwg_path,
+        dwg_path=dwg_path,
         mishtamesh=req.mishtamesh,
     )
     if new_id_teina is None:
@@ -163,7 +164,7 @@ def process_dwg(req: ProcessRequest):
     # --- process DWG → SDE ---
     try:
         success = parcel_writer.process_dwg_to_sde(
-            dwg_path=req.dwg_path,
+            dwg_path=dwg_path,
             id_hesder=req.id_hesder,
             k_sug_mapa=req.k_sug_mapa,
             sde_connection=SDE_CONNECTION,

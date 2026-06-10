@@ -51,7 +51,7 @@ def calculate_next_version(
 
         where_clause = f"id_hesder = {int(id_hesder)} AND k_sug_mapa = {k_sug_mapa}"
         max_version = 0
-        with arcpy.da.SearchCursor(table_path, ["version"], where_clause) as cursor:
+        with arcpy.da.SearchCursor(table_path, ["real_version"], where_clause) as cursor:
             for (val,) in cursor:
                 if val is not None and val > max_version:
                     max_version = val

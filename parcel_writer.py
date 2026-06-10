@@ -433,7 +433,7 @@ def process_dwg_to_sde(
 
         # Promote any existing version=0 rows to their real historical version
         # before writing the new features as version=0.
-        bump_spatial_versions(sde_connection, id_hesder, k_sug_mapa)
+        bump_spatial_versions(sde_connection, id_hesder, k_sug_mapa, current_id_teina=id_teina)
 
         parcel_layer = f"{sde_connection}\\DBO.NH_TG_HESDERIM_MUTSAOT"
         write_parcels_to_SDE(parcel_layer, id_hesder, k_sug_mapa, version, dwg_path, valid_pairs, id_teina)
