@@ -8,7 +8,7 @@ from config import DB_PASSWORD, DB_USER
 
 logger = logging.getLogger(__name__)
 
-_STATUS_TEXT = {1: "Job Started", 5: "Error", 6: "Completed Successfully"}
+_STATUS_TEXT = {1: "Job Started", 4: "Completed Successfully", 5: "Error"}
 
 
 def get_connection_string_from_sde(sde_connection: str) -> Optional[str]:
@@ -32,6 +32,7 @@ def update_status_teina(
     sde_connection: str,
     id_teina: int,
     status_value: int,
+    error_msg: Optional[str] = None,
     table_name: str = "dbo.nh_t_teinat_mapot_hesder",
 ) -> bool:
     status_text = _STATUS_TEXT.get(status_value, f"Status {status_value}")
@@ -51,8 +52,13 @@ def update_status_teina(
         conn = pyodbc.connect(conn_str)
         cursor = conn.cursor()
 
-        sql = f"UPDATE {table_name} SET k_status_teina = ? WHERE id_teina = ?"
-        cursor.execute(sql, (status_value, id_teina))
+        if error_msg is not None:
+            sql = f"UPDATE {table_name} SET k_status_teina = ?, error_msg_gis = ? WHERE id_teina = ?"
+            cursor.execute(sql, (status_value, error_msg[:4000], id_teina))
+        else:
+            sql = f"UPDATE {table_name} SET k_status_teina = ? WHERE id_teina = ?"
+            cursor.execute(sql, (status_value, id_teina))
+
         rows_affected = cursor.rowcount
         conn.commit()
 

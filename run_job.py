@@ -22,9 +22,10 @@ importlib.reload(parcel_writer)
 from config import SDE_CONNECTION
 from database_writer import write_to_mapot_hesder, verify_inserted_record
 from database_updater import update_status_teina
-ID_HESDER    = "80115"
+ID_HESDER    = "1234"
 K_SUG_MAPA   = 1
-DWG_PATH     = r"\\nas01\Gis_Users\moshe-yaniv\PROJECTS\NEHASIM_PARCELS\CAD\80115.dwg"
+#DWG_PATH     = r"\\nas01\Gis_Users\moshe-yaniv\PROJECTS\NEHASIM_PARCELS\CAD\80115.dwg"
+DWG_PATH     = r"\\nas01\niNechasim\MimshakTeinatMapotPPR\9003.dwg"
 MISHTAMESH   = None
 
 def main():
@@ -58,17 +59,19 @@ def main():
         )
     except Exception as exc:
         import traceback
-        print(f"EXCEPTION during processing:\n{traceback.format_exc()}")
-        update_status_teina(SDE_CONNECTION, new_id_teina, 5)
+        err_msg = traceback.format_exc()
+        print(f"EXCEPTION during processing:\n{err_msg}")
+        update_status_teina(SDE_CONNECTION, new_id_teina, 5, error_msg=str(exc))
         sys.exit(1)
 
     if success:
-        update_status_teina(SDE_CONNECTION, new_id_teina, 6)
+        update_status_teina(SDE_CONNECTION, new_id_teina, 4)
         print(f"\n{'='*60}")
         print(f"SUCCESS — id_teina={new_id_teina}")
         print(f"{'='*60}")
     else:
-        update_status_teina(SDE_CONNECTION, new_id_teina, 5)
+        err_msg = "DWG processing failed — see server logs for details"
+        update_status_teina(SDE_CONNECTION, new_id_teina, 5, error_msg=err_msg)
         print(f"\n{'='*60}")
         print(f"FAILED — id_teina={new_id_teina}, status set to 5 (Error)")
         print(f"{'='*60}")

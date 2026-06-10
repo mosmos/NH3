@@ -170,11 +170,12 @@ def process_dwg(req: ProcessRequest):
         )
     except Exception as exc:
         logger.exception("DWG processing raised an exception for id_teina=%s", new_id_teina)
-        update_status_teina(SDE_CONNECTION, new_id_teina, 5)
-        raise HTTPException(status_code=500, detail=f"DWG processing error: {exc}")
+        err_msg = str(exc)
+        update_status_teina(SDE_CONNECTION, new_id_teina, 5, error_msg=err_msg)
+        raise HTTPException(status_code=500, detail=f"DWG processing error: {err_msg}")
 
     if success:
-        update_status_teina(SDE_CONNECTION, new_id_teina, 6)
+        update_status_teina(SDE_CONNECTION, new_id_teina, 4)
         logger.info("Job completed — id_teina=%s", new_id_teina)
         return ProcessResponse(
             success=True,
@@ -182,11 +183,12 @@ def process_dwg(req: ProcessRequest):
             message="Processing completed successfully",
         )
 
-    update_status_teina(SDE_CONNECTION, new_id_teina, 5)
+    err_msg = "DWG processing failed — see server logs for details"
+    update_status_teina(SDE_CONNECTION, new_id_teina, 5, error_msg=err_msg)
     return ProcessResponse(
         success=False,
         id_teina=new_id_teina,
-        message="DWG processing failed — see server logs for details",
+        message=err_msg,
     )
 
 
@@ -196,7 +198,7 @@ def get_status(id_teina: int):
     if record is None:
         raise HTTPException(status_code=404, detail=f"No record for id_teina={id_teina}")
 
-    status_text = {1: "Job Started", 5: "Error", 6: "Completed Successfully"}
+    status_text = {1: "Job Started", 4: "Completed Successfully", 5: "Error"}
     status_val = record.get("k_status_teina")
     return {
         "id_teina": id_teina,
