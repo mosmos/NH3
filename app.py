@@ -131,12 +131,12 @@ class ProcessResponse(BaseModel):
     message: str
 
 
-@app.get("/process-dwg/health")
+@app.get("/health")
 def health():
     return {"status": "ok"}
 
 
-@app.post("/process-dwg/api/process-dwg", response_model=ProcessResponse)
+@app.post("/api/process-dwg", response_model=ProcessResponse)
 def process_dwg(req: ProcessRequest):
     # --- input validation ---
     try:
@@ -201,7 +201,7 @@ def process_dwg(req: ProcessRequest):
     )
 
 
-@app.get("/process-dwg/api/status/{id_teina}")
+@app.get("/api/status/{id_teina}")
 def get_status(id_teina: int):
     record = verify_inserted_record(SDE_CONNECTION, id_teina)
     if record is None:

@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NH DWG to SDE — Test Client</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: system-ui, sans-serif;
+      background: #f0f2f5;
+      color: #1a1a2e;
+      padding: 24px;
+      min-height: 100vh;
+    }
+
+    h1 { font-size: 1.4rem; font-weight: 700; margin-bottom: 4px; }
+    .subtitle { color: #666; font-size: 0.85rem; margin-bottom: 24px; }
+
+    .card {
+      background: #fff;
+      border-radius: 10px;
+      box-shadow: 0 2px 8px rgba(0,0,0,.08);
+      padding: 20px 24px;
+      margin-bottom: 20px;
+    }
+
+    .card h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-bottom: 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .badge {
+      font-size: 0.7rem;
+      font-weight: 700;
+      padding: 2px 7px;
+      border-radius: 4px;
+      letter-spacing: .5px;
+    }
+    .badge-get  { background: #e0f0ff; color: #1565c0; }
+    .badge-post { background: #fff3e0; color: #e65100; }
+
+    label { display: block; font-size: 0.82rem; font-weight: 500; margin-bottom: 4px; color: #444; }
+
+    input[type="text"], input[type="number"], select {
+      width: 100%;
+      padding: 8px 10px;
+      border: 1px solid #d0d5dd;
+      border-radius: 6px;
+      font-size: 0.9rem;
+      margin-bottom: 12px;
+      outline: none;
+      transition: border-color .2s;
+    }
+    input:focus, select:focus { border-color: #3b82f6; }
+
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+    button {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 9px 18px;
+      border: none;
+      border-radius: 6px;
+      font-size: 0.88rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity .15s;
+    }
+    button:hover { opacity: .85; }
+    button:disabled { opacity: .5; cursor: not-allowed; }
+
+    .btn-primary { background: #3b82f6; color: #fff; }
+    .btn-success { background: #22c55e; color: #fff; }
+    .btn-neutral { background: #6b7280; color: #fff; }
+
+    .result {
+      margin-top: 14px;
+      padding: 12px 14px;
+      border-radius: 6px;
+      font-family: monospace;
+      font-size: 0.82rem;
+      white-space: pre-wrap;
+      word-break: break-all;
+      display: none;
+    }
+    .result.ok    { background: #f0fdf4; border: 1px solid #86efac; color: #166534; }
+    .result.error { background: #fef2f2; border: 1px solid #fca5a5; color: #991b1b; }
+    .result.info  { background: #eff6ff; border: 1px solid #93c5fd; color: #1e40af; }
+
+    .server-row {
+      display: flex;
+      gap: 8px;
+      align-items: flex-end;
+      margin-bottom: 20px;
+    }
+    .server-row > div { flex: 1; }
+    .server-row button { margin-bottom: 12px; }
+
+    .spinner {
+      display: inline-block;
+      width: 14px; height: 14px;
+      border: 2px solid rgba(255,255,255,.4);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin .6s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .status-pill {
+      display: inline-block;
+      padding: 2px 10px;
+      border-radius: 20px;
+      font-size: 0.78rem;
+      font-weight: 600;
+    }
+    .pill-1 { background: #fef9c3; color: #854d0e; }
+    .pill-4 { background: #dcfce7; color: #166534; }
+    .pill-5 { background: #fee2e2; color: #991b1b; }
+
+    hr { border: none; border-top: 1px solid #e5e7eb; margin: 16px 0; }
+
+    .auto-poll-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-top: 10px;
+      font-size: 0.82rem;
+      color: #555;
+    }
+    .auto-poll-row input[type="checkbox"] { width: auto; margin: 0; }
+  </style>
+</head>
+<body>
+
+<h1>NH DWG → SDE — Test Client</h1>
+<p class="subtitle">Direct API tester for the NH3 processing service</p>
+
+<!-- Server config -->
+<div class="card">
+  <h2>Server</h2>
+  <div class="server-row">
+    <div>
+      <label>Base URL</label>
+      <input type="text" id="baseUrl" value="https://dgtagsteumppr/process-dwg" />
+    </div>
+    <button class="btn-neutral" onclick="healthCheck()">
+      <span id="healthSpinner" style="display:none" class="spinner"></span>
+      Health check
+    </button>
+  </div>
+  <div class="result" id="healthResult"></div>
+</div>
+
+<!-- Process DWG -->
+<div class="card">
+  <h2><span class="badge badge-post">POST</span> Submit DWG Job</h2>
+
+  <div class="row">
+    <div>
+      <label>id_hesder (numeric)</label>
+      <input type="text" id="id_hesder" placeholder="e.g. 80115" />
+    </div>
+    <div>
+      <label>k_sug_mapa</label>
+      <select id="k_sug_mapa">
+        <option value="1">1</option>
+        <option value="0">0</option>
+        <option value="2">2</option>
+      </select>
+    </div>
+  </div>
+
+  <label>dwg_file_name (filename only — server resolves full path)</label>
+  <input type="text" id="dwg_file_name" placeholder="e.g. 80115.dwg" />
+
+  <label>mishtamesh (username)</label>
+  <input type="text" id="mishtamesh" placeholder="e.g. ZIBI" />
+
+  <button class="btn-primary" id="submitBtn" onclick="submitJob()">
+    <span id="submitSpinner" style="display:none" class="spinner"></span>
+    Submit Job
+  </button>
+
+  <div class="result" id="submitResult"></div>
+
+  <div class="auto-poll-row">
+    <input type="checkbox" id="autoPoll" checked />
+    <label for="autoPoll" style="margin:0">Auto-poll status after submit</label>
+  </div>
+</div>
+
+<!-- Status check -->
+<div class="card">
+  <h2><span class="badge badge-get">GET</span> Check Job Status</h2>
+
+  <label>id_teina</label>
+  <div style="display:flex; gap:8px">
+    <input type="number" id="id_teina" placeholder="Job ID returned from submit" style="margin-bottom:0" />
+    <button class="btn-success" id="statusBtn" onclick="checkStatus()" style="white-space:nowrap">
+      <span id="statusSpinner" style="display:none" class="spinner"></span>
+      Check Status
+    </button>
+  </div>
+
+  <div class="result" id="statusResult" style="margin-top:12px"></div>
+</div>
+
+<script>
+  let pollTimer = null;
+
+  function base() {
+    return document.getElementById('baseUrl').value.replace(/\/$/, '');
+  }
+
+  function show(id, text, cls) {
+    const el = document.getElementById(id);
+    el.textContent = text;
+    el.className = 'result ' + cls;
+    el.style.display = 'block';
+  }
+
+  function spin(id, on) {
+    document.getElementById(id).style.display = on ? 'inline-block' : 'none';
+  }
+
+  async function safeFetch(url, opts) {
+    const res = await fetch(url, opts);
+    const body = await res.json().catch(() => ({ detail: res.statusText }));
+    return { ok: res.ok, status: res.status, body };
+  }
+
+  // ── Health check ──────────────────────────────────────────────────────────
+  async function healthCheck() {
+    spin('healthSpinner', true);
+    try {
+      const { ok, status, body } = await safeFetch(`${base()}/health`);
+      const cls = ok ? 'ok' : 'error';
+      show('healthResult', `HTTP ${status}\n${JSON.stringify(body, null, 2)}`, cls);
+    } catch (e) {
+      show('healthResult', `Network error: ${e.message}`, 'error');
+    } finally {
+      spin('healthSpinner', false);
+    }
+  }
+
+  // ── Submit job ────────────────────────────────────────────────────────────
+  async function submitJob() {
+    clearAutoPoll();
+
+    const id_hesder    = document.getElementById('id_hesder').value.trim();
+    const k_sug_mapa   = parseInt(document.getElementById('k_sug_mapa').value);
+    const dwg_file_name = document.getElementById('dwg_file_name').value.trim();
+    const mishtamesh   = document.getElementById('mishtamesh').value.trim();
+
+    if (!id_hesder || !dwg_file_name) {
+      show('submitResult', 'id_hesder and dwg_file_name are required.', 'error');
+      return;
+    }
+
+    const payload = { id_hesder, k_sug_mapa, dwg_file_name };
+    if (mishtamesh) payload.mishtamesh = mishtamesh;
+
+    spin('submitSpinner', true);
+    document.getElementById('submitBtn').disabled = true;
+    show('submitResult', 'Submitting…', 'info');
+
+    try {
+      const { ok, status, body } = await safeFetch(`${base()}/api/process-dwg`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      const cls = ok && body.success ? 'ok' : 'error';
+      show('submitResult', `HTTP ${status}\n${JSON.stringify(body, null, 2)}`, cls);
+
+      if (body.id_teina) {
+        document.getElementById('id_teina').value = body.id_teina;
+        if (document.getElementById('autoPoll').checked && body.success) {
+          startAutoPoll(body.id_teina);
+        }
+      }
+    } catch (e) {
+      show('submitResult', `Network error: ${e.message}`, 'error');
+    } finally {
+      spin('submitSpinner', false);
+      document.getElementById('submitBtn').disabled = false;
+    }
+  }
+
+  // ── Status check ─────────────────────────────────────────────────────────
+  async function checkStatus(silent) {
+    const id = document.getElementById('id_teina').value;
+    if (!id) {
+      if (!silent) show('statusResult', 'Enter an id_teina first.', 'error');
+      return;
+    }
+
+    if (!silent) spin('statusSpinner', true);
+
+    try {
+      const { ok, status, body } = await safeFetch(`${base()}/api/status/${id}`);
+
+      const statusCode = body.k_status_teina;
+      const pill = statusCode === 4 ? 'pill-4' : statusCode === 5 ? 'pill-5' : 'pill-1';
+      const label = body.status_text || String(statusCode);
+
+      const formatted = `HTTP ${status}
+Status: ${label}
+${JSON.stringify(body, null, 2)}`;
+
+      const cls = !ok ? 'error' : statusCode === 4 ? 'ok' : statusCode === 5 ? 'error' : 'info';
+      show('statusResult', formatted, cls);
+
+      // Stop polling once terminal state reached
+      if (statusCode === 4 || statusCode === 5) clearAutoPoll();
+
+    } catch (e) {
+      show('statusResult', `Network error: ${e.message}`, 'error');
+      clearAutoPoll();
+    } finally {
+      if (!silent) spin('statusSpinner', false);
+    }
+  }
+
+  function startAutoPoll(id_teina) {
+    clearAutoPoll();
+    show('statusResult', `Polling for id_teina=${id_teina}…`, 'info');
+    pollTimer = setInterval(() => checkStatus(true), 3000);
+  }
+
+  function clearAutoPoll() {
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+  }
+</script>
+
+</body>
+</html>
