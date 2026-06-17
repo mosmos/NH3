@@ -234,4 +234,4 @@ def delete_shuma_rows(
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    update_status_teina(sde_connection=r"SDE_730_3.sde", id_teina=3, status_value=6)
+    update_status_teina(sde_connection=r"SDE_730_3.sde", id_teina=3, status_value=4)

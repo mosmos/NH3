@@ -72,7 +72,8 @@ def main():
     chelka_a = find_field(intersect_fields, CHELKA_A)
     gush_b = find_field(intersect_fields, GUSH_B)
     chelka_b = find_field(intersect_fields, CHELKA_B)
-    print(f"  Using: A=[{gush_a}, {chelka_a}]  B=[{gush_b}, {chelka_b}]")
+    sw_musdar_f = find_field(intersect_fields, "sw_musdar")
+    print(f"  Using: A=[{gush_a}, {chelka_a}]  B=[{gush_b}, {chelka_b}, sw_musdar={sw_musdar_f}]")
 
     # 5. Collect unique B IDs from intersect, then query ONLY those from layerB
     unique_b_ids = set()
@@ -94,11 +95,12 @@ def main():
     # 6. Build results as pandas DataFrame
     rows = []
     with arcpy.da.SearchCursor(intersect_fc,
-                               [gush_a, chelka_a, gush_b, chelka_b, "SHAPE@AREA"]) as cursor:
+                               [gush_a, chelka_a, gush_b, chelka_b, "SHAPE@AREA", sw_musdar_f]) as cursor:
         for row in cursor:
             a_id = f"{row[0]}_{row[1]}"
             b_id = f"{row[2]}_{row[3]}"
             overlap_area = row[4]
+            sw_musdar_val = row[5]
 
             area_a = area_dict_A.get(a_id, 0)
             area_b = area_dict_B.get(b_id, 0)
@@ -109,6 +111,7 @@ def main():
             rows.append({
                 "A_ID": a_id,
                 "B_ID": b_id,
+                "sw_musdar": sw_musdar_val,
                 "Area_A": round(area_a, 3),
                 "Area_B": round(area_b, 3),
                 "Overlap_Area": round(overlap_area, 3),

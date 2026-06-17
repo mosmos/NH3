@@ -348,11 +348,12 @@ def write_shuma_intersections(
             return alt
         raise ValueError(f"Field '{name}' not found in intersect result. Available: {ix_field_names}")
 
-    fld_gush_a   = _field("ms_gush_hesder")
-    fld_chelka_a = _field("ms_chelka_hesder")
-    fld_gush_b   = _field("ms_gush")
-    fld_chelka_b = _field("ms_chelka")
-    logger.info("Resolved fields — A:[%s,%s]  B:[%s,%s]", fld_gush_a, fld_chelka_a, fld_gush_b, fld_chelka_b)
+    fld_gush_a    = _field("ms_gush_hesder")
+    fld_chelka_a  = _field("ms_chelka_hesder")
+    fld_gush_b    = _field("ms_gush")
+    fld_chelka_b  = _field("ms_chelka")
+    fld_sw_musdar = _field("k_status_hesder")
+    logger.info("Resolved fields — A:[%s,%s]  B:[%s,%s,k_status_hesder=%s]", fld_gush_a, fld_chelka_a, fld_gush_b, fld_chelka_b, fld_sw_musdar)
 
     # --- Step 5: collect unique B (service) IDs and fetch their areas ---
     unique_b = set()
@@ -375,26 +376,28 @@ def write_shuma_intersections(
         "id_hesder", "k_sug_mapa", "version",
         "ms_gush_hesder", "ms_chelka_hesder",
         "ms_gush", "ms_chelka",
+        "sw_musdar",
         "achuz_chelkat_shuma_bemutsaat",
     ]
 
     inserted = 0
-    read_fields = [fld_gush_a, fld_chelka_a, fld_gush_b, fld_chelka_b, "SHAPE@AREA"]
+    read_fields = [fld_gush_a, fld_chelka_a, fld_gush_b, fld_chelka_b, "SHAPE@AREA", fld_sw_musdar]
 
     with arcpy.da.SearchCursor(intersect_fc, read_fields) as search_cur:
         with arcpy.da.InsertCursor(shuma_fc, insert_fields) as insert_cur:
-            for gush_a, chelka_a, gush_b, chelka_b, overlap_area in search_cur:
+            for gush_a, chelka_a, gush_b, chelka_b, overlap_area, sw_musdar in search_cur:
                 area_b = area_dict_b.get(f"{gush_b}_{chelka_b}", 0)
                 achuz = (overlap_area / area_b * 100) if area_b and area_b > 1e-6 else 0.0
                 insert_cur.insertRow([
                     int(id_hesder), k_sug_mapa, version,
                     gush_a, chelka_a,
                     gush_b, chelka_b,
+                    sw_musdar,
                     round(achuz, 4),
                 ])
                 logger.info(
-                    "Inserted shuma row A=%s_%s B=%s_%s overlap=%.2f%%",
-                    gush_a, chelka_a, gush_b, chelka_b, achuz,
+                    "Inserted shuma row A=%s_%s B=%s_%s sw_musdar=%s overlap=%.2f%%",
+                    gush_a, chelka_a, gush_b, chelka_b, sw_musdar, achuz,
                 )
                 inserted += 1
 

@@ -5,7 +5,7 @@ REM Run from this BAT file directory.
 cd /d "%~dp0"
 
 set "PYTHON_EXE=C:\Program Files\ArcGIS\Pro\bin\Python\envs\arcgispro-py3\python.exe"
-set "PORT=809"
+set "PORT=8009"
 set "LOG_DIR=%~dp0logs"
 set "CONSOLE_LOG=%LOG_DIR%\service_console.log"
 

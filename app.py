@@ -10,6 +10,7 @@ from datetime import date
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 import parcel_writer
@@ -74,6 +75,13 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="NH DWG to SDE", version="2.0.0")
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
@@ -123,12 +131,12 @@ class ProcessResponse(BaseModel):
     message: str
 
 
-@app.get("/health")
+@app.get("/process-dwg/health")
 def health():
     return {"status": "ok"}
 
 
-@app.post("/api/process-dwg", response_model=ProcessResponse)
+@app.post("/process-dwg/api/process-dwg", response_model=ProcessResponse)
 def process_dwg(req: ProcessRequest):
     # --- input validation ---
     try:
@@ -193,7 +201,7 @@ def process_dwg(req: ProcessRequest):
     )
 
 
-@app.get("/api/status/{id_teina}")
+@app.get("/process-dwg/api/status/{id_teina}")
 def get_status(id_teina: int):
     record = verify_inserted_record(SDE_CONNECTION, id_teina)
     if record is None:
