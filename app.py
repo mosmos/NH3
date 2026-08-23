@@ -6,6 +6,7 @@ import importlib
 import logging
 import os
 import time
+import traceback
 from datetime import date
 from typing import Optional
 
@@ -178,10 +179,15 @@ def process_dwg(req: ProcessRequest):
             sde_connection=SDE_CONNECTION,
         )
     except Exception as exc:
-        logger.exception("DWG processing raised an exception for id_teina=%s", new_id_teina)
-        err_msg = str(exc)
-        update_status_teina(SDE_CONNECTION, new_id_teina, 5, error_msg=err_msg)
-        raise HTTPException(status_code=500, detail=f"DWG processing error: {err_msg}")
+        full_trace = traceback.format_exc()
+        sql_error_msg = f"{type(exc).__name__}: {exc}" if str(exc) else type(exc).__name__
+        logger.exception(
+            "DWG processing raised an exception for id_teina=%s\n%s",
+            new_id_teina,
+            full_trace,
+        )
+        update_status_teina(SDE_CONNECTION, new_id_teina, 5, error_msg=sql_error_msg)
+        raise HTTPException(status_code=500, detail=f"DWG processing error: {sql_error_msg}")
 
     if success:
         update_status_teina(SDE_CONNECTION, new_id_teina, 4)
@@ -193,6 +199,7 @@ def process_dwg(req: ProcessRequest):
         )
 
     err_msg = "DWG processing failed — see server logs for details"
+    logger.error("DWG processing failed for id_teina=%s: %s", new_id_teina, err_msg)
     update_status_teina(SDE_CONNECTION, new_id_teina, 5, error_msg=err_msg)
     return ProcessResponse(
         success=False,

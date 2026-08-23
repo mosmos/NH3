@@ -59,9 +59,11 @@ def main():
         )
     except Exception as exc:
         import traceback
-        err_msg = traceback.format_exc()
-        print(f"EXCEPTION during processing:\n{err_msg}")
-        update_status_teina(SDE_CONNECTION, new_id_teina, 5, error_msg=str(exc))
+        full_trace = traceback.format_exc()
+        sql_error_msg = f"{type(exc).__name__}: {exc}" if str(exc) else type(exc).__name__
+        print(f"EXCEPTION during processing:\n{full_trace}")
+        logging.getLogger(__name__).error("DWG processing failed for id_teina=%s\n%s", new_id_teina, full_trace)
+        update_status_teina(SDE_CONNECTION, new_id_teina, 5, error_msg=sql_error_msg)
         sys.exit(1)
 
     if success:
@@ -71,6 +73,7 @@ def main():
         print(f"{'='*60}")
     else:
         err_msg = "DWG processing failed — see server logs for details"
+        logging.getLogger(__name__).error("DWG processing failed for id_teina=%s: %s", new_id_teina, err_msg)
         update_status_teina(SDE_CONNECTION, new_id_teina, 5, error_msg=err_msg)
         print(f"\n{'='*60}")
         print(f"FAILED — id_teina={new_id_teina}, status set to 5 (Error)")

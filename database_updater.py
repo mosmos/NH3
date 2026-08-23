@@ -53,8 +53,10 @@ def update_status_teina(
         cursor = conn.cursor()
 
         if error_msg is not None:
+            safe_error_msg = error_msg[:4000]
+            logger.error("[ODBC] Writing error message to SQL for id_teina=%s: %s", id_teina, safe_error_msg)
             sql = f"UPDATE {table_name} SET k_status_teina = ?, error_msg_gis = ? WHERE id_teina = ?"
-            cursor.execute(sql, (status_value, error_msg[:4000], id_teina))
+            cursor.execute(sql, (status_value, safe_error_msg, id_teina))
         else:
             sql = f"UPDATE {table_name} SET k_status_teina = ? WHERE id_teina = ?"
             cursor.execute(sql, (status_value, id_teina))
