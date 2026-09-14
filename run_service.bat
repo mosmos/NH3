@@ -38,4 +38,4 @@ if not defined NEW_PID (
 
 echo Service started on port %PORT% with PID %NEW_PID%.
 echo Console output is being written to %CONSOLE_LOG%
-exit /b 0
+ 

@@ -120,7 +120,7 @@ def bump_spatial_versions(
         bump_to = None
 
         # Spatial tables: bump version=0 → MAX(historical)+1
-        for table in ("DBO.NH_TG_HESDERIM_MUTSAOT", "DBO.NH_TG_HESDERIM"):
+        for table in ("DBO.NH_TG_HESDERIM_MUTSAOT", "DBO.NH_TG_HESDERIM", "DBO.NH_TG_HESDER_MUTSAOT_SHUMA"):
             cursor.execute(
                 f"SELECT ISNULL(MAX(version), 0) FROM {table} "
                 f"WHERE id_hesder = ? AND k_sug_mapa = ? AND version > 0",
@@ -176,57 +176,6 @@ def bump_spatial_versions(
         if conn:
             conn.rollback()
         return 0
-    finally:
-        if cursor:
-            cursor.close()
-        if conn:
-            conn.close()
-
-
-def delete_shuma_rows(
-    sde_connection: str,
-    id_hesder: str,
-    k_sug_mapa: int,
-    table_name: str = "DBO.NH_TG_HESDER_MUTSAOT_SHUMA",
-) -> int:
-    """
-    Delete all existing rows from the SHUMA table for the given
-    (id_hesder, k_sug_mapa) pair before a fresh import.
-    Returns the number of rows deleted, or -1 on error.
-    """
-    logger.info(
-        "Deleting existing SHUMA rows for id_hesder=%s k_sug_mapa=%s",
-        id_hesder, k_sug_mapa,
-    )
-    conn = None
-    cursor = None
-    try:
-        conn_str = get_connection_string_from_sde(sde_connection)
-        if not conn_str:
-            logger.error("Failed to get connection string for SHUMA delete")
-            return -1
-
-        conn = pyodbc.connect(conn_str)
-        cursor = conn.cursor()
-        cursor.execute(
-            f"DELETE FROM {table_name} WHERE id_hesder = ? AND k_sug_mapa = ?",
-            (int(id_hesder), k_sug_mapa),
-        )
-        deleted = cursor.rowcount
-        conn.commit()
-        logger.info("Deleted %s SHUMA row(s)", deleted)
-        return deleted
-
-    except pyodbc.Error as e:
-        logger.error("Database error deleting SHUMA rows: %s", e)
-        if conn:
-            conn.rollback()
-        return -1
-    except Exception as e:
-        logger.error("Error deleting SHUMA rows: %s\n%s", e, traceback.format_exc())
-        if conn:
-            conn.rollback()
-        return -1
     finally:
         if cursor:
             cursor.close()

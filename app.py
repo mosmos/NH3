@@ -22,6 +22,7 @@ from config import DWG_ROOT, SDE_CONNECTION
 from database_updater import update_status_teina
 from database_writer import verify_inserted_record, write_to_mapot_hesder
 
+__VERSION__ = "0.9.2"  
 
 class DailyDateFileHandler(logging.Handler):
     def __init__(self, log_dir: str, encoding: str = "utf-8"):
@@ -74,7 +75,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="NH DWG to SDE", version="2.0.0")
+app = FastAPI(title="NH DWG to SDE", version=__VERSION__)
 
 app.add_middleware(
     CORSMiddleware,
@@ -153,8 +154,8 @@ def process_dwg(req: ProcessRequest):
         raise HTTPException(status_code=422, detail=f"DWG file not found: {dwg_path}")
 
     logger.info(
-        "Starting job — id_hesder=%s k_sug_mapa=%s dwg=%s",
-        req.id_hesder, req.k_sug_mapa, dwg_path,
+        "Starting job — app_version=%s id_hesder=%s k_sug_mapa=%s dwg=%s",
+        __VERSION__, req.id_hesder, req.k_sug_mapa, dwg_path,
     )
 
     # --- insert submission record (status=1 Started) ---

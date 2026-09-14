@@ -3,7 +3,7 @@ setlocal
 
 cd /d "%~dp0"
 
-set "PORT=809"
+set "PORT=8009"
 
 set "PID="
 for /f "tokens=5" %%P in ('netstat -ano ^| findstr /R /C:":%PORT% .*LISTENING"') do set "PID=%%P"
@@ -21,3 +21,5 @@ if errorlevel 1 (
 
 echo Service stopped (PID %PID%).
 exit /b 0
+
+pause

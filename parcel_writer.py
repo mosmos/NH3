@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Dict, List, Optional
 
 import arcpy
-from database_updater import bump_spatial_versions, delete_shuma_rows
+from database_updater import bump_spatial_versions
 
 logger = logging.getLogger(__name__)
 
@@ -289,14 +289,18 @@ def write_shuma_intersections(
     """
     Spatially intersect the SDE parcels just written (id_teina) against ALL
     features in cadastral MapServer layer 524 that overlap them.
-    No attribute pre-filter — arcpy.analysis.Intersect finds every overlapping
-    pair automatically.  achuz_chelkat_shuma_bemutsaat = intersection_area /
-    service_parcel_area * 100.
+    Overlap is computed with native Geometry.intersect() on in-memory geometry
+    objects — not arcpy.analysis.Intersect — since that analysis tool reused a
+    stale ArcSDE session (##SDE_session...) when mixing an enterprise
+    geodatabase input with a remote service input.
+    achuz_chelkat_shuma_bemutsaat = intersection_area / dwg_parcel_area * 100,
+    so each DWG parcel's overlaps with all service parcels sum to 100%.
     """
     logger.info("Computing shuma intersections for id_teina=%s", id_teina)
 
     parcel_fc = f"{sde_connection}\\DBO.NH_TG_HESDERIM_MUTSAOT"
     shuma_fc  = f"{sde_connection}\\DBO.NH_TG_HESDER_MUTSAOT_SHUMA"
+    target_sr = arcpy.SpatialReference(2039)  # Israeli TM Grid — both sources must match to compare areas/intersect correctly
 
     if not arcpy.Exists(shuma_fc):
         logger.error("Target table not found: %s", shuma_fc)
@@ -312,67 +316,65 @@ def write_shuma_intersections(
         return
     logger.info("Layer A: %s SDE parcel(s)", count_a)
 
-    # --- Step 2: build area dict for layer A ---
-    area_dict_a = {}
-    with arcpy.da.SearchCursor(lyr_a, ["ms_gush_hesder", "ms_chelka_hesder", "SHAPE@AREA"]) as cur:
-        for gush, chelka, area in cur:
-            area_dict_a[f"{gush}_{chelka}"] = area
-
-    # --- Step 3: spatial intersection against MapServer layer 524 ---
-    intersect_fc = f"in_memory\\shuma_ix_{uuid.uuid4().hex[:8]}"
+    # --- Step 2: pull layer A geometries into memory, then release the SDE layer ---
+    parcels_a = []
+    lyr_b = f"svc_{uuid.uuid4().hex[:8]}"
     try:
-        arcpy.analysis.Intersect([lyr_a, _SHUMA_SERVICE_URL], intersect_fc, "ALL")
-    except Exception as e:
-        logger.error("arcpy.analysis.Intersect failed: %s\n%s", e, traceback.format_exc())
-        arcpy.management.Delete(lyr_a)
-        return
+        with arcpy.da.SearchCursor(
+            lyr_a, ["ms_gush_hesder", "ms_chelka_hesder", "SHAPE@", "SHAPE@AREA"],
+            spatial_reference=target_sr,
+        ) as cur:
+            for gush, chelka, geom, area in cur:
+                parcels_a.append({"gush": gush, "chelka": chelka, "geom": geom, "area": area})
+
+        # --- Step 3: narrow candidate service parcels via selection (no analysis tool) ---
+        arcpy.management.MakeFeatureLayer(_SHUMA_SERVICE_URL, lyr_b)
+        arcpy.management.SelectLayerByLocation(lyr_b, "INTERSECT", lyr_a)
+        count_b = int(arcpy.management.GetCount(lyr_b)[0])
+        logger.info("Candidate service parcel(s) overlapping layer A: %s", count_b)
+
+        parcels_b = []
+        if count_b > 0:
+            with arcpy.da.SearchCursor(
+                lyr_b, ["ms_gush", "ms_chelka", "SHAPE@", "SHAPE@AREA", "k_status_hesder"],
+                spatial_reference=target_sr,
+            ) as cur:
+                for gush, chelka, geom, area, sw_musdar in cur:
+                    parcels_b.append({"gush": gush, "chelka": chelka, "geom": geom, "area": area, "sw_musdar": sw_musdar})
     finally:
         arcpy.management.Delete(lyr_a)
+        if arcpy.Exists(lyr_b):
+            arcpy.management.Delete(lyr_b)
 
-    count_ix = int(arcpy.management.GetCount(intersect_fc)[0])
-    logger.info("Intersection produced %s overlapping piece(s)", count_ix)
-
-    if count_ix == 0:
+    if not parcels_b:
         logger.info("No overlaps found for id_teina=%s — nothing written to SHUMA", id_teina)
-        arcpy.management.Delete(intersect_fc)
         return
 
-    # --- Step 4: resolve field names (Intersect adds _1 suffix on name clashes) ---
-    ix_field_names = [f.name for f in arcpy.ListFields(intersect_fc)]
+    # --- Step 4: manual pairwise geometry intersection ---
+    results = []
+    for a in parcels_a:
+        for b in parcels_b:
+            if a["geom"].disjoint(b["geom"]):
+                continue
+            overlap_geom = a["geom"].intersect(b["geom"], 4)  # dimension 4 = polygon/area
+            overlap_area = overlap_geom.area if overlap_geom else 0.0
+            if not overlap_area or overlap_area <= 1e-6:
+                continue
+            achuz = (overlap_area / a["area"] * 100) if a["area"] and a["area"] > 1e-6 else 0.0
+            results.append((a["gush"], a["chelka"], b["gush"], b["chelka"], b["sw_musdar"], round(achuz, 4)))
 
-    def _field(name: str) -> str:
-        if name in ix_field_names:
-            return name
-        alt = f"{name}_1"
-        if alt in ix_field_names:
-            return alt
-        raise ValueError(f"Field '{name}' not found in intersect result. Available: {ix_field_names}")
+    if not results:
+        logger.info("No overlaps found for id_teina=%s — nothing written to SHUMA", id_teina)
+        return
 
-    fld_gush_a    = _field("ms_gush_hesder")
-    fld_chelka_a  = _field("ms_chelka_hesder")
-    fld_gush_b    = _field("ms_gush")
-    fld_chelka_b  = _field("ms_chelka")
-    fld_sw_musdar = _field("k_status_hesder")
-    logger.info("Resolved fields — A:[%s,%s]  B:[%s,%s,k_status_hesder=%s]", fld_gush_a, fld_chelka_a, fld_gush_b, fld_chelka_b, fld_sw_musdar)
+    logger.info("Computed %s overlapping pair(s)", len(results))
 
-    # --- Step 5: collect unique B (service) IDs and fetch their areas ---
-    unique_b = set()
-    with arcpy.da.SearchCursor(intersect_fc, [fld_gush_b, fld_chelka_b]) as cur:
-        for gush, chelka in cur:
-            unique_b.add((gush, chelka))
-
-    area_dict_b = {}
-    if unique_b:
-        where_b = " OR ".join(f"(ms_gush = {g} AND ms_chelka = {c})" for g, c in unique_b)
-        with arcpy.da.SearchCursor(_SHUMA_SERVICE_URL, ["ms_gush", "ms_chelka", "SHAPE@AREA"], where_b) as cur:
-            for gush, chelka, area in cur:
-                area_dict_b[f"{gush}_{chelka}"] = area
-    logger.info("Retrieved areas for %s service parcel(s)", len(area_dict_b))
-
-    # --- Step 6: delete old rows, insert new ones ---
-    delete_shuma_rows(sde_connection, id_hesder, k_sug_mapa)
-
+    # --- Step 5: insert new rows as version=0 ---
+    # Old version=0 SHUMA rows for this (id_hesder, k_sug_mapa) were already
+    # bumped to their historical version by bump_spatial_versions() earlier
+    # in process_dwg_to_sde(), before this job's new features were written.
     insert_fields = [
+        "id_teina",
         "id_hesder", "k_sug_mapa", "version",
         "ms_gush_hesder", "ms_chelka_hesder",
         "ms_gush", "ms_chelka",
@@ -381,27 +383,22 @@ def write_shuma_intersections(
     ]
 
     inserted = 0
-    read_fields = [fld_gush_a, fld_chelka_a, fld_gush_b, fld_chelka_b, "SHAPE@AREA", fld_sw_musdar]
+    with arcpy.da.InsertCursor(shuma_fc, insert_fields) as insert_cur:
+        for gush_a, chelka_a, gush_b, chelka_b, sw_musdar, achuz in results:
+            insert_cur.insertRow([
+                id_teina,
+                int(id_hesder), k_sug_mapa, version,
+                gush_a, chelka_a,
+                gush_b, chelka_b,
+                sw_musdar,
+                achuz,
+            ])
+            logger.info(
+                "Inserted shuma row A=%s_%s B=%s_%s sw_musdar=%s overlap=%.2f%%",
+                gush_a, chelka_a, gush_b, chelka_b, sw_musdar, achuz,
+            )
+            inserted += 1
 
-    with arcpy.da.SearchCursor(intersect_fc, read_fields) as search_cur:
-        with arcpy.da.InsertCursor(shuma_fc, insert_fields) as insert_cur:
-            for gush_a, chelka_a, gush_b, chelka_b, overlap_area, sw_musdar in search_cur:
-                area_b = area_dict_b.get(f"{gush_b}_{chelka_b}", 0)
-                achuz = (overlap_area / area_b * 100) if area_b and area_b > 1e-6 else 0.0
-                insert_cur.insertRow([
-                    int(id_hesder), k_sug_mapa, version,
-                    gush_a, chelka_a,
-                    gush_b, chelka_b,
-                    sw_musdar,
-                    round(achuz, 4),
-                ])
-                logger.info(
-                    "Inserted shuma row A=%s_%s B=%s_%s sw_musdar=%s overlap=%.2f%%",
-                    gush_a, chelka_a, gush_b, chelka_b, sw_musdar, achuz,
-                )
-                inserted += 1
-
-    arcpy.management.Delete(intersect_fc)
     logger.info("Shuma intersections complete: %s inserted", inserted)
 
 
@@ -447,6 +444,11 @@ def process_dwg_to_sde(
         if not success:
             logger.error("Failed to write hesder boundary")
             return False
+
+        # Drop arcpy's cached SDE connection: prior edit cursors closed their
+        # server-side session, and reusing the cached connection for the
+        # upcoming Intersect can reference an already-dropped ##SDE_session temp table.
+        arcpy.management.ClearWorkspaceCache(sde_connection)
 
         # Step h: spatially intersect SDE parcels with cadastral service layer 524
         write_shuma_intersections(sde_connection, id_hesder, k_sug_mapa, version, id_teina)
