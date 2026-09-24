@@ -18,11 +18,18 @@ import parcel_writer
 
 importlib.reload(parcel_writer)
 
-from config import DWG_ROOT, SDE_CONNECTION
+from config import (
+    CHELKOT_DB_PASSWORD,
+    CHELKOT_DB_USER,
+    CHELKOT_LAYER,
+    CHELKOT_SDE_CONNECTION,
+    DWG_ROOT,
+    SDE_CONNECTION,
+)
 from database_updater import update_status_teina
 from database_writer import verify_inserted_record, write_to_mapot_hesder
 
-__VERSION__ = "0.9.2"  
+__VERSION__ = "0.9.3"  
 
 class DailyDateFileHandler(logging.Handler):
     def __init__(self, log_dir: str, encoding: str = "utf-8"):
@@ -178,6 +185,10 @@ def process_dwg(req: ProcessRequest):
             id_hesder=req.id_hesder,
             k_sug_mapa=req.k_sug_mapa,
             sde_connection=SDE_CONNECTION,
+            chelkot_sde_connection=CHELKOT_SDE_CONNECTION,
+            chelkot_layer=CHELKOT_LAYER,
+            chelkot_db_user=CHELKOT_DB_USER,
+            chelkot_db_password=CHELKOT_DB_PASSWORD,
         )
     except Exception as exc:
         full_trace = traceback.format_exc()

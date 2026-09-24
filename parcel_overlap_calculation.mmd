@@ -1,0 +1,43 @@
+flowchart TD
+    A[Start: process id_teina for one DWG submission] --> B[Load current DWG parcels from SDE_730_3\DBO.NH_TG_HESDERIM_MUTSAOT\nwhere id_teina = current job]
+    B --> C[Make feature layer A and count parcels]
+    C --> D{Any parcels found?}
+    D -- No --> E[Stop: no overlap rows written]
+    D -- Yes --> F[Load all parcel geometries into memory\nA = {gush, chelka, geom, area}]
+
+    F --> G[Open SDE_736 source layer\nDBO.KD_TG_CHELKOT]
+    G --> H[Select only candidates that INTERSECT layer A]
+    H --> I[Read candidate parcels into memory\nB = {gush, chelka, geom, area, sw_musdar}]
+
+    I --> J{Any overlap candidates?}
+    J -- No --> K[Stop: no overlaps found]
+    J -- Yes --> L[For each parcel A and candidate parcel B]
+
+    L --> M{A.geom disjoint B.geom?}
+    M -- Yes --> N[Skip this pair]
+    M -- No --> O[overlap_geom = A.geom.intersect(B.geom, 4)]
+    O --> P[overlap_area = overlap_geom.area]
+    P --> Q{overlap_area <= 1e-6?}
+    Q -- Yes --> N
+    Q -- No --> R[achuz = overlap_area / A.area * 100]
+    R --> S[Save pair result with\nms_gush_hesder, ms_chelka_hesder,\nms_gush, ms_chelka, sw_musdar, achuz]
+    S --> T{Next pair?}
+    T -- Yes --> L
+    T -- No --> U[Insert all results into\nDBO.NH_TG_HESDER_MUTSAOT_SHUMA]
+    U --> V[Rows stored as version = 0 for current job]
+    V --> W[Finish]
+
+    R:::calc
+    O:::calc
+    U:::write
+    B:::load
+    G:::load
+    M:::decision
+    Q:::decision
+    D:::decision
+    J:::decision
+
+    classDef load fill:#E3F2FD,stroke:#1565C0,stroke-width:1px
+    classDef calc fill:#E8F5E9,stroke:#2E7D32,stroke-width:1px
+    classDef write fill:#FFF3E0,stroke:#EF6C00,stroke-width:1px
+    classDef decision fill:#F3E5F5,stroke:#6A1B9A,stroke-width:1px

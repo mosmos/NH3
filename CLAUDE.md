@@ -262,7 +262,9 @@ Direct ODBC connection (pyodbc). Used only for the status UPDATE to avoid SDE ed
 
 | Item | Location | Value |
 |---|---|---|
-| SDE connection file | `config.py` | `SDE_730_3.sde` (relative path — must be next to `app.py`) |
+| Destination SDE connection file | `config.py` | `SDE_730_3.sde` (relative path — must be next to `app.py`) |
+| Chelkot source SDE connection file | `config.py` | `SDE_736.sde` |
+| Chelkot overlap source | `config.py` | `CHELKOT_SOURCE = "sde"` or `"service"` |
 | Python executable | `config.py` | `C:\Program Files\ArcGIS\Pro\bin\Python\envs\arcgispro-py3\python.exe` |
 | DB credentials | `database_updater.py` | `UID=nh; PWD=nh` (hardcoded) |
 | ODBC driver | `database_updater.py` | `ODBC Driver 17 for SQL Server` |

@@ -1,0 +1,34 @@
+flowchart TD
+    A[Start: process_dwg_to_sde] --> B[Load current job parcels from SDE_730_3<br/>NH_TG_HESDERIM_MUTSAOT<br/>where id_teina = X]
+    B --> C[Load chelkot candidate parcels from SDE_736<br/>KD_TG_CHELKOT]
+    C --> D[Select only chelkot features that INTERSECT the current parcel layer]
+    D --> E[For each parcel A in current job]
+    E --> F[For each candidate parcel B in chelkot layer]
+    F --> G{"Are A and B disjoint?"}
+    G -- Yes --> F
+    G -- No --> H["overlap_geom = intersect A and B, dimension 4"]
+    H --> I["overlap_area = overlap_geom.area"]
+    I --> J{"overlap_area greater than 1e-6?"}
+    J -- No --> F
+    J -- Yes --> K[achuz = overlap_area / A.area * 100]
+    K --> L[Store pair: A.gush/A.chelka, B.gush/B.chelka, sw_musdar, achuz]
+    L --> M{More pairs?}
+    M -- Yes --> F
+    M -- No --> N[Insert rows into<br/>NH_TG_HESDER_MUTSAOT_SHUMA]
+    N --> O[Return success]
+
+    classDef source fill:#e8f1ff,stroke:#4a86e8,stroke-width:1px,color:#111;
+    classDef step fill:#ecfdf5,stroke:#10b981,stroke-width:1px,color:#111;
+    classDef decision fill:#fff7ed,stroke:#f59e0b,stroke-width:1px,color:#111;
+    classDef output fill:#fef2f2,stroke:#ef4444,stroke-width:1px,color:#111;
+
+    class A,B,C,D source;
+    class E,F,H,I,K,L,N step;
+    class G,J,M decision;
+    class O output;
+
+    %% Formula shown inline for clarity
+    subgraph Formula
+        F1["achuz = intersection_area divided by parcel_area, times 100"]
+    end
+    K --> F1

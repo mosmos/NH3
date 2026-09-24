@@ -19,12 +19,18 @@ if _THIS_DIR not in sys.path:
 import parcel_writer
 importlib.reload(parcel_writer)
 
-from config import DWG_ROOT, SDE_CONNECTION
+from config import (
+    CHELKOT_DB_PASSWORD,
+    CHELKOT_DB_USER,
+    CHELKOT_LAYER,
+    CHELKOT_SDE_CONNECTION,
+    DWG_ROOT,
+    SDE_CONNECTION,
+)
 from database_writer import write_to_mapot_hesder, verify_inserted_record
 from database_updater import update_status_teina
 ID_HESDER    = "102030"
 K_SUG_MAPA   = 2
-#DWG_PATH     = r"\\nas01\Gis_Users\moshe-yaniv\PROJECTS\NEHASIM_PARCELS\CAD\80115.dwg"
 DWG_PATH     = DWG_ROOT + "\\" + r"80117.dwg"
 MISHTAMESH   = None
 
@@ -56,6 +62,10 @@ def main():
             id_hesder=ID_HESDER,
             k_sug_mapa=K_SUG_MAPA,
             sde_connection=SDE_CONNECTION,
+            chelkot_sde_connection=CHELKOT_SDE_CONNECTION,
+            chelkot_layer=CHELKOT_LAYER,
+            chelkot_db_user=CHELKOT_DB_USER,
+            chelkot_db_password=CHELKOT_DB_PASSWORD,
         )
     except Exception as exc:
         import traceback

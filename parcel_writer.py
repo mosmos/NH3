@@ -1,5 +1,7 @@
 import logging
 import os
+import shutil
+import tempfile
 import traceback
 import uuid
 from datetime import datetime
@@ -9,6 +11,35 @@ import arcpy
 from database_updater import bump_spatial_versions
 
 logger = logging.getLogger(__name__)
+
+
+def _create_chelkot_connection(source_sde: str, username: str, password: str) -> tuple[str, str]:
+    source_description = arcpy.Describe(source_sde)
+    connection_properties = source_description.connectionProperties
+    temp_directory = tempfile.mkdtemp(prefix="nh_chelkot_")
+    connection_name = "chelkot_reader.sde"
+    current_directory = os.getcwd()
+    try:
+        arcpy.management.CreateDatabaseConnection(
+            temp_directory,
+            connection_name,
+            "SQL_SERVER",
+            connection_properties.instance,
+            "DATABASE_AUTH",
+            username,
+            password,
+            "SAVE_USERNAME",
+            connection_properties.database,
+            "",
+            "TRANSACTIONAL",
+            "sde.DEFAULT",
+        )
+    except Exception:
+        shutil.rmtree(temp_directory, ignore_errors=True)
+        raise
+    finally:
+        os.chdir(current_directory)
+    return os.path.join(temp_directory, connection_name), temp_directory
 
 
 def read_dwg_polygons(dwg_path: str) -> List[Dict]:
@@ -79,7 +110,9 @@ def read_dwg_points(dwg_path: str) -> List[Dict]:
                 points.append({
                     "id": idx, "oid": oid, "layer": layer, "geometry": geometry,
                     "x": xy[0], "y": xy[1], "parcel_name": parcel_name,
-                    "gush": gush, "calc_area": calc_area, "legal_area": legal_area,
+                    "gush": gush,
+                    "calc_area": calc_area / 1000 if calc_area is not None else None,
+                    "legal_area": legal_area / 1000 if legal_area is not None else None,
                     "docname": docname, "refname": refname,
                 })
 
@@ -240,7 +273,7 @@ def dissolve_and_write_hesder_boundary(
     valid_pairs: List[Dict],
     id_teina: Optional[int],
     k_sug_mapa: int,
-    sde_connection: str = "SDE_730_3.sde",
+    sde_connection: str = "SDE_736.sde",
 ) -> bool:
     logger.info("Dissolving %s polygon(s) into hesder boundary", len(poly_dict))
     try:
@@ -276,50 +309,49 @@ def dissolve_and_write_hesder_boundary(
         return False
 
 
-_SHUMA_SERVICE_URL = "https://dgt-ags02/arcgis/rest/services/WM/IView2WM/MapServer/524"
-
-
 def write_shuma_intersections(
     sde_connection: str,
+    chelkot_sde_connection: str,
+    chelkot_layer: str,
+    chelkot_db_user: str,
+    chelkot_db_password: str,
     id_hesder: str,
     k_sug_mapa: int,
     version: int,
     id_teina: int,
-) -> None:
+) -> bool:
     """
-    Spatially intersect the SDE parcels just written (id_teina) against ALL
-    features in cadastral MapServer layer 524 that overlap them.
+    Spatially intersect the SDE parcels just written (id_teina) against all
+    overlapping chelkot features from the SDE-736 source.
     Overlap is computed with native Geometry.intersect() on in-memory geometry
-    objects — not arcpy.analysis.Intersect — since that analysis tool reused a
-    stale ArcSDE session (##SDE_session...) when mixing an enterprise
-    geodatabase input with a remote service input.
-    achuz_chelkat_shuma_bemutsaat = intersection_area / dwg_parcel_area * 100,
-    so each DWG parcel's overlaps with all service parcels sum to 100%.
+    objects to avoid stale ArcSDE session issues.
     """
     logger.info("Computing shuma intersections for id_teina=%s", id_teina)
 
     parcel_fc = f"{sde_connection}\\DBO.NH_TG_HESDERIM_MUTSAOT"
     shuma_fc  = f"{sde_connection}\\DBO.NH_TG_HESDER_MUTSAOT_SHUMA"
-    target_sr = arcpy.SpatialReference(2039)  # Israeli TM Grid — both sources must match to compare areas/intersect correctly
+    target_sr = arcpy.SpatialReference(2039)
 
     if not arcpy.Exists(shuma_fc):
         logger.error("Target table not found: %s", shuma_fc)
-        return
+        return False
 
-    # --- Step 1: filtered feature layer for layer A (SDE parcels, this job) ---
     lyr_a = f"parcel_{uuid.uuid4().hex[:8]}"
     arcpy.management.MakeFeatureLayer(parcel_fc, lyr_a, f"id_teina = {id_teina}")
+    logger.info("Processing id_teina=%s", id_teina)
     count_a = int(arcpy.management.GetCount(lyr_a)[0])
     if count_a == 0:
         logger.warning("No SDE parcels found for id_teina=%s — skipping shuma step", id_teina)
         arcpy.management.Delete(lyr_a)
-        return
+        return True
     logger.info("Layer A: %s SDE parcel(s)", count_a)
 
-    # --- Step 2: pull layer A geometries into memory, then release the SDE layer ---
     parcels_a = []
-    lyr_b = f"svc_{uuid.uuid4().hex[:8]}"
+    lyr_b = f"chelkot_{uuid.uuid4().hex[:8]}"
     try:
+        chelkot_fc = f"{chelkot_sde_connection}\\{chelkot_layer}"
+        logger.info("Reading chelkot overlap source from SDE: %s", chelkot_fc)
+
         with arcpy.da.SearchCursor(
             lyr_a, ["ms_gush_hesder", "ms_chelka_hesder", "SHAPE@", "SHAPE@AREA"],
             spatial_reference=target_sr,
@@ -327,11 +359,13 @@ def write_shuma_intersections(
             for gush, chelka, geom, area in cur:
                 parcels_a.append({"gush": gush, "chelka": chelka, "geom": geom, "area": area})
 
-        # --- Step 3: narrow candidate service parcels via selection (no analysis tool) ---
-        arcpy.management.MakeFeatureLayer(_SHUMA_SERVICE_URL, lyr_b)
+        if not arcpy.Exists(chelkot_fc):
+            logger.error("Chelkot source layer not found: %s", chelkot_fc)
+            return False
+        arcpy.management.MakeFeatureLayer(chelkot_fc, lyr_b)
         arcpy.management.SelectLayerByLocation(lyr_b, "INTERSECT", lyr_a)
         count_b = int(arcpy.management.GetCount(lyr_b)[0])
-        logger.info("Candidate service parcel(s) overlapping layer A: %s", count_b)
+        logger.info("Candidate chelkot parcel(s) overlapping layer A: %s", count_b)
 
         parcels_b = []
         if count_b > 0:
@@ -341,6 +375,10 @@ def write_shuma_intersections(
             ) as cur:
                 for gush, chelka, geom, area, sw_musdar in cur:
                     parcels_b.append({"gush": gush, "chelka": chelka, "geom": geom, "area": area, "sw_musdar": sw_musdar})
+            logger.info(
+                "Selected chelkot parcel(s): %s",
+                [{"ms_gush": p["gush"], "ms_chelka": p["chelka"]} for p in parcels_b],
+            )
     finally:
         arcpy.management.Delete(lyr_a)
         if arcpy.Exists(lyr_b):
@@ -348,7 +386,7 @@ def write_shuma_intersections(
 
     if not parcels_b:
         logger.info("No overlaps found for id_teina=%s — nothing written to SHUMA", id_teina)
-        return
+        return True
 
     # --- Step 4: manual pairwise geometry intersection ---
     results = []
@@ -400,6 +438,7 @@ def write_shuma_intersections(
             inserted += 1
 
     logger.info("Shuma intersections complete: %s inserted", inserted)
+    return True
 
 
 def process_dwg_to_sde(
@@ -407,6 +446,10 @@ def process_dwg_to_sde(
     id_hesder: str,
     k_sug_mapa: int,
     sde_connection: str = "SDE_730_3.sde",
+    chelkot_sde_connection: str = "SDE_736.sde",
+    chelkot_layer: str = r"db736.DBO.kadaster\db736.DBO.KD_TG_CHELKOT",
+    chelkot_db_user: str = "reader",
+    chelkot_db_password: str = "reader",
 ) -> bool:
     logger.info("DWG-to-SDE start — dwg=%s id_hesder=%s k_sug_mapa=%s", dwg_path, id_hesder, k_sug_mapa)
     try:
@@ -450,8 +493,21 @@ def process_dwg_to_sde(
         # upcoming Intersect can reference an already-dropped ##SDE_session temp table.
         arcpy.management.ClearWorkspaceCache(sde_connection)
 
-        # Step h: spatially intersect SDE parcels with cadastral service layer 524
-        write_shuma_intersections(sde_connection, id_hesder, k_sug_mapa, version, id_teina)
+        # Step h: spatially intersect destination parcels with chelkot parcels
+        shuma_success = write_shuma_intersections(
+            sde_connection,
+            chelkot_sde_connection,
+            chelkot_layer,
+            chelkot_db_user,
+            chelkot_db_password,
+            id_hesder,
+            k_sug_mapa,
+            version,
+            id_teina,
+        )
+        if not shuma_success:
+            logger.error("Chelkot overlap calculation failed")
+            return False
 
         logger.info("DWG-to-SDE completed — id_hesder=%s version=%s", id_hesder, version)
         return True
@@ -464,8 +520,8 @@ def process_dwg_to_sde(
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     success = process_dwg_to_sde(
-        dwg_path=r"C:\DEV\NH_HESDER\CAD_FILES\80119.dwg",
-        id_hesder="906090",
+        dwg_path=r"C:\DEV\NH_HESDER\CAD_FILES\9003.dwg",
+        id_hesder="10101",
         k_sug_mapa=1,
         sde_connection="SDE_730_3.sde",
     )
