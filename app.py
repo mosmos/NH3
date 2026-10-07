@@ -10,6 +10,7 @@ import traceback
 from datetime import date
 from typing import Optional
 
+import pyodbc
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -26,7 +27,7 @@ from config import (
     DWG_ROOT,
     SDE_CONNECTION,
 )
-from database_updater import update_status_teina
+from database_updater import get_connection_string_from_sde, update_status_teina
 from database_writer import verify_inserted_record, write_to_mapot_hesder
 
 __VERSION__ = "0.9.3"  
@@ -140,9 +141,37 @@ class ProcessResponse(BaseModel):
     message: str
 
 
+def _check_sql_connection(sde_connection: str) -> dict:
+    try:
+        conn_str = get_connection_string_from_sde(sde_connection)
+        if not conn_str:
+            raise RuntimeError("Could not build connection string from SDE file")
+        conn = pyodbc.connect(conn_str, timeout=5)
+        conn.close()
+        return {"ok": True}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+def _check_dwg_root(path: str) -> dict:
+    try:
+        if not os.path.isdir(path):
+            raise RuntimeError(f"path not accessible: {path}")
+        os.listdir(path)
+        return {"ok": True, "path": path}
+    except Exception as e:
+        return {"ok": False, "path": path, "error": str(e)}
+
+
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    checks = {
+        "sql_server": _check_sql_connection(SDE_CONNECTION),
+        "chelkot_sql_server": _check_sql_connection(CHELKOT_SDE_CONNECTION),
+        "dwg_folder": _check_dwg_root(DWG_ROOT),
+    }
+    status = "ok" if all(c["ok"] for c in checks.values()) else "degraded"
+    return {"status": status, "checks": checks}
 
 
 @app.post("/api/process-dwg", response_model=ProcessResponse)
