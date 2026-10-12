@@ -33,7 +33,7 @@ from config import (
 from database_updater import get_connection_string_from_sde, update_status_teina
 from database_writer import verify_inserted_record, write_to_mapot_hesder
 
-__VERSION__ = "0.9.3"  
+__VERSION__ = "0.9.9"  
 
 class DailyDateFileHandler(logging.Handler):
     def __init__(self, log_dir: str, encoding: str = "utf-8"):

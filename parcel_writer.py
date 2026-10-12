@@ -142,8 +142,8 @@ def read_dwg_points(dwg_path: str) -> List[Dict]:
                     "id": idx, "oid": oid, "layer": layer, "geometry": geometry,
                     "x": xy[0], "y": xy[1], "parcel_name": parcel_name,
                     "gush": gush,
-                    "calc_area": calc_area / 1000 if calc_area is not None else None,
-                    "legal_area": legal_area / 1000 if legal_area is not None else None,
+                    "calc_area": calc_area * 1000 if calc_area is not None else None,
+                    "legal_area": legal_area * 1000 if legal_area is not None else None,
                     "docname": docname, "refname": refname,
                 })
 
@@ -424,13 +424,11 @@ def write_shuma_intersections(
             if not overlap_area or overlap_area <= 1e-6:
                 continue
             achuz = (overlap_area / a["area"] * 100) if a["area"] and a["area"] > 1e-6 else 0.0
-            if achuz < 1.0:
-                continue
             results.append((a["gush"], a["chelka"], b["gush"], b["chelka"], b["sw_musdar"], round(achuz, 4)))
 
     if not results:
         logger.info("No overlaps found for id_teina=%s — nothing written to SHUMA", id_teina)
-        return
+        return True
 
     logger.info("Computed %s overlapping pair(s)", len(results))
 
