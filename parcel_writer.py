@@ -1,45 +1,76 @@
 import logging
 import os
-import shutil
-import tempfile
 import traceback
 import uuid
 from datetime import datetime
 from typing import Dict, List, Optional
 
 import arcpy
+import pyodbc
 from database_updater import bump_spatial_versions
 
 logger = logging.getLogger(__name__)
 
 
-def _create_chelkot_connection(source_sde: str, username: str, password: str) -> tuple[str, str]:
-    source_description = arcpy.Describe(source_sde)
-    connection_properties = source_description.connectionProperties
-    temp_directory = tempfile.mkdtemp(prefix="nh_chelkot_")
-    connection_name = "chelkot_reader.sde"
-    current_directory = os.getcwd()
+def read_chelkot_from_sql(
+    server: str,
+    database: str,
+    table: str,
+    db_user: str,
+    db_password: str,
+    spatial_reference: "arcpy.SpatialReference",
+    envelope_wkt: Optional[str] = None,
+    envelope_srid: Optional[int] = None,
+) -> List[Dict]:
+    """
+    Read chelkot parcels straight from SQL Server (no .sde connection
+    file / arcpy feature layer involved). Shape is a native SQL Server geometry
+    column — it is pulled out as WKT via Shape.STAsText() and converted to an
+    arcpy geometry with arcpy.FromWKT(). When envelope_wkt is given, rows are
+    pre-filtered server-side to those intersecting that envelope.
+    """
+    sql = f"SELECT ms_gush, ms_chelka, k_status_hesder, Shape.STAsText() AS wkt_shape FROM {table}"
+    params: List = []
+    if envelope_wkt is not None:
+        sql += " WHERE Shape.STIntersects(geometry::STGeomFromText(?, ?)) = 1"
+        params = [envelope_wkt, envelope_srid]
+
+    conn_str = (
+        f"Driver={{ODBC Driver 17 for SQL Server}};"
+        f"Server=tcp:{server},1433;"
+        f"Database={database};"
+        f"UID={db_user};PWD={db_password};"
+    )
+
+    parcels: List[Dict] = []
+    conn = None
     try:
-        arcpy.management.CreateDatabaseConnection(
-            temp_directory,
-            connection_name,
-            "SQL_SERVER",
-            connection_properties.instance,
-            "DATABASE_AUTH",
-            username,
-            password,
-            "SAVE_USERNAME",
-            connection_properties.database,
-            "",
-            "TRANSACTIONAL",
-            "sde.DEFAULT",
-        )
-    except Exception:
-        shutil.rmtree(temp_directory, ignore_errors=True)
-        raise
+        logger.info("[SQL] Reading chelkot parcels from %s.%s.%s (envelope filter=%s)", server, database, table, envelope_wkt is not None)
+        conn = pyodbc.connect(conn_str, timeout=15)
+        cursor = conn.cursor()
+        cursor.execute(sql, params) if params else cursor.execute(sql)
+        for gush, chelka, sw_musdar, wkt_shape in cursor.fetchall():
+            if not wkt_shape:
+                continue
+            geom = arcpy.FromWKT(wkt_shape, spatial_reference)
+            if not geom:
+                continue
+            parcels.append({
+                "gush": gush,
+                "chelka": chelka,
+                "sw_musdar": sw_musdar,
+                "geom": geom,
+                "area": geom.area,
+            })
+    except pyodbc.Error as e:
+        logger.error("[SQL] Error reading chelkot from %s.%s: %s\n%s", server, database, e, traceback.format_exc())
+        return []
     finally:
-        os.chdir(current_directory)
-    return os.path.join(temp_directory, connection_name), temp_directory
+        if conn:
+            conn.close()
+
+    logger.info("[SQL] Read %s chelkot parcel(s)", len(parcels))
+    return parcels
 
 
 def read_dwg_polygons(dwg_path: str) -> List[Dict]:
@@ -273,7 +304,7 @@ def dissolve_and_write_hesder_boundary(
     valid_pairs: List[Dict],
     id_teina: Optional[int],
     k_sug_mapa: int,
-    sde_connection: str = "SDE_736.sde",
+    sde_connection: str = "SDE_730_3.sde",
 ) -> bool:
     logger.info("Dissolving %s polygon(s) into hesder boundary", len(poly_dict))
     try:
@@ -311,8 +342,9 @@ def dissolve_and_write_hesder_boundary(
 
 def write_shuma_intersections(
     sde_connection: str,
-    chelkot_sde_connection: str,
-    chelkot_layer: str,
+    chelkot_sql_server: str,
+    chelkot_sql_database: str,
+    chelkot_sql_table: str,
     chelkot_db_user: str,
     chelkot_db_password: str,
     id_hesder: str,
@@ -321,8 +353,8 @@ def write_shuma_intersections(
     id_teina: int,
 ) -> bool:
     """
-    Spatially intersect the SDE parcels just written (id_teina) against all
-    overlapping chelkot features from the SDE-736 source.
+    Intersect the SDE parcels just written (id_teina) against all overlapping
+    chelkot features, read directly over SQL (Shape.STAsText() -> arcpy.FromWKT()).
     Overlap is computed with native Geometry.intersect() on in-memory geometry
     objects to avoid stale ArcSDE session issues.
     """
@@ -347,42 +379,35 @@ def write_shuma_intersections(
     logger.info("Layer A: %s SDE parcel(s)", count_a)
 
     parcels_a = []
-    lyr_b = f"chelkot_{uuid.uuid4().hex[:8]}"
     try:
-        chelkot_fc = f"{chelkot_sde_connection}\\{chelkot_layer}"
-        logger.info("Reading chelkot overlap source from SDE: %s", chelkot_fc)
-
         with arcpy.da.SearchCursor(
             lyr_a, ["ms_gush_hesder", "ms_chelka_hesder", "SHAPE@", "SHAPE@AREA"],
             spatial_reference=target_sr,
         ) as cur:
             for gush, chelka, geom, area in cur:
                 parcels_a.append({"gush": gush, "chelka": chelka, "geom": geom, "area": area})
-
-        if not arcpy.Exists(chelkot_fc):
-            logger.error("Chelkot source layer not found: %s", chelkot_fc)
-            return False
-        arcpy.management.MakeFeatureLayer(chelkot_fc, lyr_b)
-        arcpy.management.SelectLayerByLocation(lyr_b, "INTERSECT", lyr_a)
-        count_b = int(arcpy.management.GetCount(lyr_b)[0])
-        logger.info("Candidate chelkot parcel(s) overlapping layer A: %s", count_b)
-
-        parcels_b = []
-        if count_b > 0:
-            with arcpy.da.SearchCursor(
-                lyr_b, ["ms_gush", "ms_chelka", "SHAPE@", "SHAPE@AREA", "k_status_hesder"],
-                spatial_reference=target_sr,
-            ) as cur:
-                for gush, chelka, geom, area, sw_musdar in cur:
-                    parcels_b.append({"gush": gush, "chelka": chelka, "geom": geom, "area": area, "sw_musdar": sw_musdar})
-            logger.info(
-                "Selected chelkot parcel(s): %s",
-                [{"ms_gush": p["gush"], "ms_chelka": p["chelka"]} for p in parcels_b],
-            )
     finally:
         arcpy.management.Delete(lyr_a)
-        if arcpy.Exists(lyr_b):
-            arcpy.management.Delete(lyr_b)
+
+    xmin = min(p["geom"].extent.XMin for p in parcels_a)
+    ymin = min(p["geom"].extent.YMin for p in parcels_a)
+    xmax = max(p["geom"].extent.XMax for p in parcels_a)
+    ymax = max(p["geom"].extent.YMax for p in parcels_a)
+    envelope_wkt = (
+        f"POLYGON(({xmin} {ymin}, {xmax} {ymin}, {xmax} {ymax}, {xmin} {ymax}, {xmin} {ymin}))"
+    )
+
+    parcels_b = read_chelkot_from_sql(
+        chelkot_sql_server,
+        chelkot_sql_database,
+        chelkot_sql_table,
+        chelkot_db_user,
+        chelkot_db_password,
+        target_sr,
+        envelope_wkt=envelope_wkt,
+        envelope_srid=target_sr.factoryCode,
+    )
+    logger.info("Selected %s chelkot parcel(s) intersecting envelope", len(parcels_b))
 
     if not parcels_b:
         logger.info("No overlaps found for id_teina=%s — nothing written to SHUMA", id_teina)
@@ -399,6 +424,8 @@ def write_shuma_intersections(
             if not overlap_area or overlap_area <= 1e-6:
                 continue
             achuz = (overlap_area / a["area"] * 100) if a["area"] and a["area"] > 1e-6 else 0.0
+            if achuz < 1.0:
+                continue
             results.append((a["gush"], a["chelka"], b["gush"], b["chelka"], b["sw_musdar"], round(achuz, 4)))
 
     if not results:
@@ -446,8 +473,9 @@ def process_dwg_to_sde(
     id_hesder: str,
     k_sug_mapa: int,
     sde_connection: str = "SDE_730_3.sde",
-    chelkot_sde_connection: str = "SDE_736.sde",
-    chelkot_layer: str = r"db736.DBO.kadaster\db736.DBO.KD_TG_CHELKOT",
+    chelkot_sql_server: str = "dgd-sde02",
+    chelkot_sql_database: str = "db720",
+    chelkot_sql_table: str = "dbo.KD_TG_CHELKOT",
     chelkot_db_user: str = "reader",
     chelkot_db_password: str = "reader",
 ) -> bool:
@@ -496,8 +524,9 @@ def process_dwg_to_sde(
         # Step h: spatially intersect destination parcels with chelkot parcels
         shuma_success = write_shuma_intersections(
             sde_connection,
-            chelkot_sde_connection,
-            chelkot_layer,
+            chelkot_sql_server,
+            chelkot_sql_database,
+            chelkot_sql_table,
             chelkot_db_user,
             chelkot_db_password,
             id_hesder,

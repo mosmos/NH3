@@ -22,8 +22,11 @@ importlib.reload(parcel_writer)
 from config import (
     CHELKOT_DB_PASSWORD,
     CHELKOT_DB_USER,
-    CHELKOT_LAYER,
-    CHELKOT_SDE_CONNECTION,
+    CHELKOT_SQL_DATABASE,
+    CHELKOT_SQL_SERVER,
+    CHELKOT_SQL_TABLE,
+    DB_PASSWORD,
+    DB_USER,
     DWG_ROOT,
     SDE_CONNECTION,
 )
@@ -141,11 +144,26 @@ class ProcessResponse(BaseModel):
     message: str
 
 
-def _check_sql_connection(sde_connection: str) -> dict:
+def _check_sql_connection(sde_connection: str, db_user: str = DB_USER, db_password: str = DB_PASSWORD) -> dict:
     try:
-        conn_str = get_connection_string_from_sde(sde_connection)
+        conn_str = get_connection_string_from_sde(sde_connection, db_user, db_password)
         if not conn_str:
             raise RuntimeError("Could not build connection string from SDE file")
+        conn = pyodbc.connect(conn_str, timeout=5)
+        conn.close()
+        return {"ok": True}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+def _check_direct_sql_connection(server: str, database: str, db_user: str, db_password: str) -> dict:
+    try:
+        conn_str = (
+            f"Driver={{ODBC Driver 17 for SQL Server}};"
+            f"Server=tcp:{server},1433;"
+            f"Database={database};"
+            f"UID={db_user};PWD={db_password};"
+        )
         conn = pyodbc.connect(conn_str, timeout=5)
         conn.close()
         return {"ok": True}
@@ -156,18 +174,18 @@ def _check_sql_connection(sde_connection: str) -> dict:
 def _check_dwg_root(path: str) -> dict:
     try:
         if not os.path.isdir(path):
-            raise RuntimeError(f"path not accessible: {path}")
+            raise RuntimeError("path not accessible")
         os.listdir(path)
-        return {"ok": True, "path": path}
+        return {"ok": True}
     except Exception as e:
-        return {"ok": False, "path": path, "error": str(e)}
+        return {"ok": False, "error": str(e)}
 
 
 @app.get("/health")
 def health():
     checks = {
         "sql_server": _check_sql_connection(SDE_CONNECTION),
-        "chelkot_sql_server": _check_sql_connection(CHELKOT_SDE_CONNECTION),
+        "chelkot_sql_server": _check_direct_sql_connection(CHELKOT_SQL_SERVER, CHELKOT_SQL_DATABASE, CHELKOT_DB_USER, CHELKOT_DB_PASSWORD),
         "dwg_folder": _check_dwg_root(DWG_ROOT),
     }
     status = "ok" if all(c["ok"] for c in checks.values()) else "degraded"
@@ -214,8 +232,9 @@ def process_dwg(req: ProcessRequest):
             id_hesder=req.id_hesder,
             k_sug_mapa=req.k_sug_mapa,
             sde_connection=SDE_CONNECTION,
-            chelkot_sde_connection=CHELKOT_SDE_CONNECTION,
-            chelkot_layer=CHELKOT_LAYER,
+            chelkot_sql_server=CHELKOT_SQL_SERVER,
+            chelkot_sql_database=CHELKOT_SQL_DATABASE,
+            chelkot_sql_table=CHELKOT_SQL_TABLE,
             chelkot_db_user=CHELKOT_DB_USER,
             chelkot_db_password=CHELKOT_DB_PASSWORD,
         )

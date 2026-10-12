@@ -1,7 +1,7 @@
 flowchart TD
     A[Start: process_dwg_to_sde] --> B[Load current job parcels from SDE_730_3<br/>NH_TG_HESDERIM_MUTSAOT<br/>where id_teina = X]
-    B --> C[Load chelkot candidate parcels from SDE_736<br/>KD_TG_CHELKOT]
-    C --> D[Select only chelkot features that INTERSECT the current parcel layer]
+    B --> C[Load chelkot candidate parcels via direct SQL<br/>dgd-sde02.db720.KD_TG_CHELKOT<br/>Shape.STAsText to arcpy.FromWKT]
+    C --> D[Filter to chelkot rows where ms_gush matches<br/>any gush value from the current parcel layer]
     D --> E[For each parcel A in current job]
     E --> F[For each candidate parcel B in chelkot layer]
     F --> G{"Are A and B disjoint?"}

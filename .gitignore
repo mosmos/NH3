@@ -15,5 +15,12 @@ __pycache__/
 # Runtime logs
 logs/
 
+# dwg files
+CAD_FILES/
+
+# ArcPro files
+NH_index/
+
+	
 # VS Code-generated PySpark type stubs
 .stubs/

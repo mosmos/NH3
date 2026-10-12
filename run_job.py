@@ -22,8 +22,9 @@ importlib.reload(parcel_writer)
 from config import (
     CHELKOT_DB_PASSWORD,
     CHELKOT_DB_USER,
-    CHELKOT_LAYER,
-    CHELKOT_SDE_CONNECTION,
+    CHELKOT_SQL_DATABASE,
+    CHELKOT_SQL_SERVER,
+    CHELKOT_SQL_TABLE,
     DWG_ROOT,
     SDE_CONNECTION,
 )
@@ -62,8 +63,9 @@ def main():
             id_hesder=ID_HESDER,
             k_sug_mapa=K_SUG_MAPA,
             sde_connection=SDE_CONNECTION,
-            chelkot_sde_connection=CHELKOT_SDE_CONNECTION,
-            chelkot_layer=CHELKOT_LAYER,
+            chelkot_sql_server=CHELKOT_SQL_SERVER,
+            chelkot_sql_database=CHELKOT_SQL_DATABASE,
+            chelkot_sql_table=CHELKOT_SQL_TABLE,
             chelkot_db_user=CHELKOT_DB_USER,
             chelkot_db_password=CHELKOT_DB_PASSWORD,
         )

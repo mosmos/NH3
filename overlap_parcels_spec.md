@@ -7,15 +7,15 @@ Describes how `write_shuma_intersections()` in [parcel_writer.py](parcel_writer.
 | Source | Table / Layer | Filter |
 |---|---|---|
 | Layer A — this job's parcels | `SDE_730_3.sde` → `DBO.NH_TG_HESDERIM_MUTSAOT` | `id_teina = <current job>` |
-| Layer B — cadastral parcels | `SDE_736.sde` → `db736.DBO.kadaster\db736.DBO.KD_TG_CHELKOT` | Spatially selected: `INTERSECT` layer A |
+| Layer B — cadastral parcels | Direct SQL (pyodbc) → `dgd-sde02`.`db720`.`KD_TG_CHELKOT` | `ms_gush IN (<gush values from layer A>)` |
 
-Both layers are read into memory using `arcpy.da.SearchCursor` with spatial reference **EPSG:2039** (Israeli TM Grid), so areas and geometries are directly comparable.
+Layer A is read into memory using `arcpy.da.SearchCursor` with spatial reference **EPSG:2039** (Israeli TM Grid). Layer B is read directly over SQL — its `Shape` column (SQL Server geometry) is converted to WKT with `Shape.STAsText()` and turned into an arcpy geometry with `arcpy.FromWKT(wkt, spatial_reference)`, using the same EPSG:2039 spatial reference — so areas and geometries are directly comparable.
 
 ## Algorithm
 
 1. Build feature layer A, filtered to the current `id_teina`. If empty, skip the step (return success, nothing to do).
-2. Build feature layer B from the SDE-736 chelkot source, narrowed with `SelectLayerByLocation(..., "INTERSECT", lyr_a)` to reduce the candidate set.
-3. Pull both layers' geometries and areas into memory, then release the SDE feature layers.
+2. Pull layer A's geometries, gush values, and areas into memory, then release the SDE feature layer.
+3. Query the chelkot source over SQL for all rows where `ms_gush` matches one of layer A's gush values (`read_chelkot_from_sql()` in [parcel_writer.py](parcel_writer.py)).
 4. For every pair `(A, B)`:
    - Skip if `A.geom.disjoint(B.geom)` is `True`.
    - Compute `overlap_geom = A.geom.intersect(B.geom, 4)` (dimension `4` = polygon/area intersection).
@@ -53,6 +53,7 @@ $$
 
 - No candidate overlaps found → function returns success, nothing is written.
 - Manual pairwise `Geometry.intersect()` is used instead of `arcpy.analysis.Intersect` because the analysis tool reused a stale ArcSDE session when mixing an enterprise geodatabase input with the chelkot source.
+- Chelkot parcels are read with plain `pyodbc` (no `.sde` connection file, no SDE edit session) — the `Shape` column is pulled out as WKT via `Shape.STAsText()` and converted with `arcpy.FromWKT()`.
 - Old `version = 0` SHUMA rows for `(id_hesder, k_sug_mapa)` are bumped to a historical version **before** this step runs (via `bump_spatial_versions()` earlier in `process_dwg_to_sde()`), so this insert always represents the current/live overlap set.
 
 ## Diagram

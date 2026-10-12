@@ -11,7 +11,11 @@ logger = logging.getLogger(__name__)
 _STATUS_TEXT = {1: "Job Started", 4: "Completed Successfully", 5: "Error"}
 
 
-def get_connection_string_from_sde(sde_connection: str) -> Optional[str]:
+def get_connection_string_from_sde(
+    sde_connection: str,
+    db_user: str = DB_USER,
+    db_password: str = DB_PASSWORD,
+) -> Optional[str]:
     try:
         desc = arcpy.Describe(sde_connection)
         props = desc.connectionProperties
@@ -19,7 +23,7 @@ def get_connection_string_from_sde(sde_connection: str) -> Optional[str]:
             f"Driver={{ODBC Driver 17 for SQL Server}};"
             f"Server={props.server};"
             f"Database={props.database};"
-            f"UID={DB_USER};PWD={DB_PASSWORD};"
+            f"UID={db_user};PWD={db_password};"
         )
         logger.info("[ODBC] Connection string built for server=%s database=%s", props.server, props.database)
         return conn_str

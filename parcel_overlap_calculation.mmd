@@ -3,11 +3,11 @@ flowchart TD
     B --> C[Make feature layer A and count parcels]
     C --> D{Any parcels found?}
     D -- No --> E[Stop: no overlap rows written]
-    D -- Yes --> F[Load all parcel geometries into memory\nA = {gush, chelka, geom, area}]
+    D -- Yes --> F[Load all parcel geometries into memory\nA fields: gush, chelka, geom, area]
 
-    F --> G[Open SDE_736 source layer\nDBO.KD_TG_CHELKOT]
-    G --> H[Select only candidates that INTERSECT layer A]
-    H --> I[Read candidate parcels into memory\nB = {gush, chelka, geom, area, sw_musdar}]
+    F --> G[Query chelkot via direct SQL pyodbc\ndgd-sde02.db720.KD_TG_CHELKOT\nWHERE ms_gush IN layer A gush values]
+    G --> H[Convert Shape.STAsText WKT to arcpy geometry\nvia arcpy.FromWKT]
+    H --> I[Read candidate parcels into memory\nB fields: gush, chelka, geom, area, sw_musdar]
 
     I --> J{Any overlap candidates?}
     J -- No --> K[Stop: no overlaps found]
